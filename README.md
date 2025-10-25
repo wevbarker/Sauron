@@ -6,255 +6,125 @@
 
 *AI-powered academic collaborator discovery for theoretical physics*
 
-```bash
-python rank_collaborators.py "Perimeter Institute for Theoretical Physics"
-```
+AI-powered academic collaborator discovery and ranking system using INSPIRE-HEP, GPT-4o web search, and Gemini 2.5 Pro.
 
-Automatically discovers researchers at target institutions, analyzes their publication history, and ranks them by compatibility with your research program using AI-powered analysis.
+## Setup
 
-## Overview
+**Prerequisites:**
+- Python 3.8+
+- API keys as environment variables:
+  ```bash
+  export OPENAI_API_KEY="sk-..."
+  export GOOGLE_API_KEY="..."
+  ```
+- System: `wget`, `tar`
 
-Academic collaboration requires identifying researchers whose work aligns with your research interests and future directions. **Sauron** automates this process by:
-
-1. **Discovering** researchers at target institutions using web search and INSPIRE HEP profiles
-2. **Gathering** publication metadata (titles, abstracts, citations) via INSPIRE API
-3. **Analyzing** research compatibility using large context window models (Gemini 2.5 Pro)
-4. **Ranking** potential collaborators based on both existing overlap and future research directions
-
-The system is designed for theoretical physicists working in high-energy physics, cosmology, astrophysics, and related fields where INSPIRE HEP provides comprehensive publication coverage.
-
-## Quick Start
-
-For confident users familiar with Python and API keys.
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set API keys
-export OPENAI_API_KEY="sk-..."
-export GOOGLE_API_KEY="..."
-
-# Run full pipeline for an institution
-python rank_collaborators.py "Stanford Applied Physics"
-
-# Limit to top 10 researchers
-python rank_collaborators.py "Kavli Institute Cambridge" -n 10
-```
-
-## Installation
-
-### 1. Dependencies
-
-**Python requirements:**
-```bash
-pip install -r requirements.txt
-```
-
-Required packages:
-- `requests` - INSPIRE API queries
-- `google-generativeai` - Gemini 2.5 Pro ranking
-- `openai` - GPT-4o web search for researcher discovery
-
-### 2. API Keys
-
-Sauron requires API keys from two providers:
-
-**OpenAI** (researcher discovery via web search):
-```bash
-export OPENAI_API_KEY="sk-..."
-```
-
-**Google** (collaboration ranking via Gemini 2.5 Pro):
-```bash
-export GOOGLE_API_KEY="..."
-```
-
-**Martensite integration** (optional):
-
-If you have [Martensite](https://github.com/wevbarker/Martensite) installed, Sauron will automatically use its key discovery system, which supports environment variables, OS keyring, and config files.
-
-### 3. Personal Context
-
-To rank collaborators, Sauron needs your research context:
-
-**Your papers** (LaTeX sources from arXiv):
-```bash
-cd Self/
-./download_papers.sh  # Downloads all your papers from INSPIRE
-./GatherSelf.sh       # Extracts main .tex files
-```
-
-**Your applications** (2025 job applications):
-
-Place your application `.tex` files in `~/Documents/Applications/2025/`, then:
-```bash
-cd ~/Documents/Applications/Generics/
-./GatherContext.sh    # Gathers application context
-```
-
-**Combined context**:
-```bash
-./GatherSelfCombined.sh  # Combines papers + applications (~800k tokens)
-```
+**Find your INSPIRE BAI:**
+1. Go to https://inspirehep.net and search your name
+2. Copy your BAI from your profile (format: `FirstName.MiddleInitial.LastName.1`)
 
 ## Usage
 
-### Full Pipeline
+### 1. Initialize
 
 ```bash
-# Analyze all researchers at an institution
-python rank_collaborators.py "Perimeter Institute"
-
-# Limit analysis to first N researchers (faster, cheaper)
-python rank_collaborators.py "University of Chicago KICP" -n 15
-
-# Specify custom output directory
-python rank_collaborators.py "Cambridge DAMTP" -o output/cambridge/
+python sauron.py init --bai YOUR.INSPIRE.BAI.1
 ```
 
-### Individual Stages
+This creates `confidential/` and downloads your papers.
 
-**Stage 1: Find researchers**
+### 2. Add Application Materials
+
+Copy your research/teaching statements to:
+```
+confidential/GatherContext.md
+```
+
+Then re-run init:
 ```bash
-python find_researchers.py "Stanford Applied Physics"
-# Output: Stanford_Applied_Physics_researchers.md
+python sauron.py init --bai YOUR.INSPIRE.BAI.1
 ```
 
-**Stage 2: Gather papers for a specific researcher**
+### 3. Rank Collaborators
+
 ```bash
-./gather_author.sh William.E.V.Barker.1 output.md
+python sauron.py rank "Institution Name"
 ```
 
-**Stage 3-4: Ranking** (requires combined context and researcher papers)
+**Examples:**
 ```bash
-python rank_collaborators.py "Institution Name"
+python sauron.py rank "Institute of Cosmology and Gravitation at Portsmouth"
+python sauron.py rank "Perimeter Institute for Theoretical Physics"
+python sauron.py rank "SISSA"
 ```
+
+**Limit researchers** (if token budget tight):
+```bash
+python sauron.py rank "Institution" --max-researchers 50
+```
+
+### 4. View Results
+
+Results saved to `output/Institution_Name/`:
+- `researchers.md` - All researchers found
+- `ranking_context.md` - Full context sent to Gemini
+- `ranking.md` - Final rankings
 
 ## How It Works
 
-### 1. Researcher Discovery
+**Discovery:**
+1. GPT-4o searches institution website for faculty names
+2. Names matched to INSPIRE profiles
+3. INSPIRE affiliation data used to find additional current researchers
+4. Filtered to current affiliations only
 
-Uses OpenAI GPT-4o with web search to:
-- Find institution faculty/researcher pages
-- Extract researcher names
-- Query INSPIRE HEP API for profile matches
-- Expand results using INSPIRE affiliation data
+**Ranking:**
+1. Downloads 30 recent papers per researcher (titles/abstracts)
+2. Combines with your context:
+   - 5 recent papers (full LaTeX)
+   - All your papers (abstracts)
+   - Application materials
+3. Gemini 2.5 Pro ranks by:
+   - Existing research overlap
+   - Future research direction alignment
+   - Collaboration potential
 
-**INSPIRE expansion**: After initial name matching, Sauron queries INSPIRE for all current researchers at the institution's INSPIRE-registered IDs, dramatically improving coverage.
+**Token optimization:** ~345k base + ~7k per researcher = fits ~90-100 researchers in 1M token limit
 
-### 2. Paper Gathering
-
-For each researcher with an INSPIRE profile:
-- Queries INSPIRE API for 30 most recent papers
-- Extracts: title, authors, journal, citations, abstract
-- Compact representation (~330 tokens/paper)
-
-### 3. Context Building
-
-Combines:
-- **Your papers**: 20 most recent LaTeX sources (~620k tokens)
-- **Your applications**: 2025 research statements and applications (~185k tokens)
-- **Collaborator papers**: Titles and abstracts (~195k token budget)
-
-Total: <1M tokens (fits within Gemini 2.5 Pro context window)
-
-### 4. AI Ranking
-
-Sends combined context to Gemini 2.5 Pro with a prompt that evaluates:
-
-**Existing overlap**: Do they work on topics related to your past publications?
-
-**Future direction alignment**: Do they have expertise in areas you're planning to move into (from your research statements)?
-
-This dual criterion ensures high rankings for both:
-- Researchers with immediate topical overlap (easy collaboration)
-- Researchers with skills you want to learn (strategic collaboration)
-
-## Output Format
-
-Rankings are saved as `output/INSTITUTION_NAME/ranking.md`:
-
-```markdown
-1. [Researcher Name] - INSPIRE_BAI
-   **Research overlap:** [1-2 sentence summary]
-   **Collaboration potential:** [Assessment]
-   **Recommendation:** [Based on existing overlap / future direction / both]
-
-2. [Next researcher...]
-```
-
-## Project Structure
+## Structure
 
 ```
 Sauron/
-├── find_researchers.py       # Stage 1: OpenAI + INSPIRE discovery
-├── gather_author.sh          # Stage 2: INSPIRE paper metadata
-├── rank_collaborators.py     # Stages 3-4: Full pipeline orchestration
-├── GatherSelfCombined.sh     # Build your context (papers + applications)
-├── Self/                     # Your arXiv papers (LaTeX sources)
-│   ├── download_papers.sh
-│   ├── GatherSelf.sh
-│   └── [arxiv_id]/
-├── output/                   # Generated results (gitignored)
-│   └── [institution]/
-│       ├── ranking.md
-│       ├── ranking_context.md
-│       └── *.papers.md
-└── README.md
+├── sauron.py              # Main script
+├── src/                   # Source code (VCS-safe)
+├── confidential/          # Personal data (gitignored)
+│   ├── papers/            # Your arXiv downloads
+│   ├── cache/             # Collaborator papers
+│   ├── MyPapers_Abstracts.md
+│   ├── GatherContext.md   # Your applications (you provide)
+│   └── BaseContext.md     # Generated
+└── output/                # Results (gitignored, auto-generated)
 ```
 
-## Token Budget
-
-Gemini 2.5 Pro has a 1M token context window. Typical usage:
-
-| Component | Tokens |
-|-----------|--------|
-| Your papers (20 recent) | ~620k |
-| Your applications (2025) | ~185k |
-| **Subtotal (your context)** | **~805k** |
-| Available for collaborators | ~195k |
-| Collaborators analyzed | ~50-60 |
-
-## Cost Estimates
-
-Per institution analysis (assuming ~50 researchers):
-
-- **OpenAI GPT-4o** (web search): ~$0.50
-- **INSPIRE API**: Free
-- **Gemini 2.5 Pro** (ranking): ~$5.00
-
-**Total: ~$5.50 per institution**
-
-## Platform Support
-
-- **Linux**: Fully supported (tested on Arch)
-- **macOS**: Compatible (requires bash, Python 3.8+)
-
-## Limitations
-
-- **INSPIRE coverage**: Only finds researchers with INSPIRE HEP profiles (theoretical physics, cosmology, HEP)
-- **Token budget**: Limited to ~50-60 researchers per ranking due to 1M token window
-- **Accuracy**: Web search quality depends on institution website structure
-- **Recency**: INSPIRE data may lag recent appointments by weeks/months
+**Yes, `output/` is auto-generated** when you run rank commands.
 
 ## Troubleshooting
 
-**No researchers found**: Institution may have non-standard website structure or researchers may not be in INSPIRE
+**"OPENAI_API_KEY not set"** - `export OPENAI_API_KEY=...`
 
-**Token limit exceeded**: Reduce `-n` parameter or analyze fewer researchers
+**"No Google API key"** - `export GOOGLE_API_KEY=...`
 
-**INSPIRE API timeout**: Add delay between requests (edit `gather_author.sh`)
+**Token limit exceeded** - Use `--max-researchers 50`
 
-**Gemini API error**: Check `GOOGLE_API_KEY` and account quota
+**No researchers found** - Use full institution name with department
 
-## Roadmap
+## Cost
 
-- [ ] Support for additional databases (ADS, arXiv author search)
-- [ ] ORCID integration for non-HEP researchers
-- [ ] Batch processing for multiple institutions
-- [ ] Citation network analysis
-- [ ] Email template generation
+~$3-4 per institution analysis (90 researchers, Gemini 2.5 Pro pricing)
+
+## Privacy
+
+No personal info hardcoded. All personal data in `confidential/` (gitignored). API keys from environment only.
 
 ## License
 
@@ -274,3 +144,7 @@ It should **not** be used for:
 - Research evaluation or hiring decisions without human review
 
 Responsible use means reading the papers, engaging thoughtfully, and respecting researchers' time.
+
+## Acknowledgements
+
+I am indebted to Will Handley for (i) calling out zero-sum famine mentality on my part, and encouraging me to make this repository public, and (ii) funding the _OpenAI_ inference used during development. I am also grateful to Ilona Gottwaldová for bringing the big picture of LLM-assisted grantsmanship to my attention.
