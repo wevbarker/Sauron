@@ -1,6 +1,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-![Sauron Banner](banner.png)
+![Sauron Banner](src/banner.png)
 
 # Sauron
 
